@@ -36,4 +36,18 @@ if(CONFIG_CANOPENNODE)
   zephyr_library_sources_ifdef(CONFIG_CANOPENNODE_SYNC_THREAD src/canopen_sync.c)
   zephyr_library_sources_ifdef(CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD src/canopen_program.c)
 
+  # Most board.cmake files do not register the canopen west flash runner, so
+  # register it here for any board with program download enabled. Defaults can
+  # be overridden from an app's app_set_runner_args() macro or the command line.
+  if(CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD)
+    get_property(canopen_runners GLOBAL PROPERTY ZEPHYR_RUNNERS)
+    if(NOT canopen IN_LIST canopen_runners)
+      set(canopen_runner_args "--sdo-timeout=30" "--timeout=60")
+      if(DEFINED CONFIG_CANOPEN_NODE_ID)
+        list(PREPEND canopen_runner_args "--node-id=${CONFIG_CANOPEN_NODE_ID}")
+      endif()
+      board_finalize_runner_args(canopen ${canopen_runner_args})
+    endif()
+  endif()
+
 endif()

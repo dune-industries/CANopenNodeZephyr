@@ -23,6 +23,7 @@ This code has been tested on STM32F072 (bxCAN), STM32H7(M_CAN), and FRDM-MCXN947
 | `Kconfig` | All `CONFIG_CANOPENNODE_*` options |
 | `zephyr/module.yml` | Zephyr module config |
 | `samples/canopennode/` | Sample app with OD and LEDs |
+| `samples/program_download/` | Firmware update over CAN with MCUboot (`nucleo_f767zi`) |
 
 License: **Apache-2.0**
 
@@ -36,7 +37,8 @@ can add them the way they need:
   Settings subsystems, and make sure your board has a `storage` partition.
 - **Firmware upgrade over CANopen** - supported by the module (see
   [Program download](#program-download-firmware-update-over-can)), but not enabled
-  in the sample: it needs MCUboot and extra objects in the OD.
+  in this sample: it needs MCUboot and extra objects in the OD. See the separate
+  `samples/program_download` sample.
 
 The sample ships with `native_sim.conf` as a reference config for simulation builds.
 
@@ -86,15 +88,24 @@ Requirements:
 Flash with the runner (needs the Python packages `canopen` and `tqdm`):
 
 ```bash
-west flash --runner canopen --node-id <id>
+west flash --runner canopen --domain <app> --node-id <id>
 ```
+
+The module registers the `canopen` runner for any board when
+`CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD=y` (most `board.cmake` files do not), with
+`--sdo-timeout=30 --timeout=60` and, if the app defines `CONFIG_CANOPEN_NODE_ID`,
+`--node-id` set from it. With sysbuild, `--domain <app>` keeps west from also
+sending MCUboot over CAN.
+
+A complete example for `nucleo_f767zi` is in
+[`samples/program_download`](samples/program_download/README.md).
 
 Commands are only accepted in NMT pre-operational; the runner switches the node to
 pre-operational itself. The new image boots as a test image and is confirmed by the
 runner afterwards; if it is not confirmed, MCUboot reverts on the next reset.
 
 Clearing the image slot runs inside one SDO transfer and can take several seconds on
-large slots, so raise `--sdo-timeout` (for example `--sdo-timeout=30 --timeout=60`).
+large slots, which is why the registered defaults use long timeouts.
 
 ---
 

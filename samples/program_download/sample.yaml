@@ -1,0 +1,20 @@
+sample:
+  name: CANopenNode program download sample
+common:
+  tags:
+    - can
+    - canopen
+  sysbuild: true
+  depends_on: can
+  filter: dt_chosen_enabled("zephyr,canbus")
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "(.*)CANopen stack initialized"
+tests:
+  sample.canopennode.program_download:
+    platform_allow:
+      - nucleo_f767zi
+    integration_platforms:
+      - nucleo_f767zi
