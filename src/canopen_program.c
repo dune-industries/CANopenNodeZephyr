@@ -53,6 +53,8 @@ struct canopen_program_context {
 	CO_EM_t *em;
 	struct flash_img_context flash_img_ctx;
 	uint8_t program_status;
+	/* Slot1 erased by "clear" and no download started into it since */
+	bool flash_erased;
 	bool flash_written;
 	OD_extension_t ext_1f50;
 	OD_extension_t ext_1f51;
@@ -133,6 +135,17 @@ static ODR_t canopen_odf_1f50_write(OD_stream_t *stream, const void *buf, OD_siz
 	}
 
 	if (stream->dataOffset == 0U) {
+		/*
+		 * Each download needs a fresh "clear". A download that was aborted or
+		 * failed has already programmed part of the slot, and writing over
+		 * programmed flash without an erase corrupts the image.
+		 */
+		if (!ctx.flash_erased) {
+			ctx.flash_status = FLASH_STATUS_FLASH_NOT_CLEARED;
+			return ODR_DATA_DEV_STATE;
+		}
+		ctx.flash_erased = false;
+
 		err = flash_img_init(&ctx.flash_img_ctx);
 		if (err) {
 			LOG_ERR("failed to initialize flash img (err %d)", err);
@@ -245,6 +258,7 @@ static inline ODR_t canopen_program_cmd_clear(void)
 	LOG_DBG("program cleared");
 	canopen_program_set_status(PROGRAM_CTRL_CLEAR);
 	ctx.flash_status = FLASH_STATUS_NO_ERROR;
+	ctx.flash_erased = true;
 	ctx.flash_written = false;
 
 	return ODR_OK;
@@ -382,6 +396,7 @@ static int canopen_program_swid(uint32_t *crc)
 {
 	const struct flash_area *flash_area;
 	struct mcuboot_img_header header;
+	size_t offset;
 	uint8_t fa_id;
 	int err;
 
@@ -405,13 +420,26 @@ static int canopen_program_swid(uint32_t *crc)
 		return 0;
 	}
 
+	/*
+	 * The image does not always start at offset 0 of the slot (e.g. the
+	 * secondary slot in MCUboot swap-using-offset mode starts one sector in).
+	 */
+	offset = boot_get_image_start_offset(fa_id);
+
 	err = flash_area_open(fa_id, &flash_area);
 	if (err) {
 		LOG_ERR("failed to open flash area (err %d)", err);
 		return err;
 	}
 
-	err = flash_crc(flash_area, 0, header.h.v1.image_size, crc);
+	if ((offset > flash_area->fa_size) ||
+	    (header.h.v1.image_size > (flash_area->fa_size - offset))) {
+		LOG_WRN("image size %u exceeds flash area", header.h.v1.image_size);
+		flash_area_close(flash_area);
+		return 0;
+	}
+
+	err = flash_crc(flash_area, offset, header.h.v1.image_size, crc);
 
 	flash_area_close(flash_area);
 
@@ -502,6 +530,7 @@ int canopen_program_download_attach(OD_t *od, CO_NMT_t *nmt, CO_EM_t *em)
 
 	canopen_program_set_status(PROGRAM_CTRL_START);
 	ctx.flash_status = FLASH_STATUS_NO_ERROR;
+	ctx.flash_erased = false;
 	ctx.flash_written = false;
 	ctx.nmt = nmt;
 	ctx.em = em;

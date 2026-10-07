@@ -17,7 +17,10 @@ struct canopen_leds_state {
 	void *red_arg;
 	bool green : 1;
 	bool red : 1;
-	bool program_download : 1;
+	/* Not a bitfield: written from thread context while the timer ISR
+	 * updates green/red, which would share the same byte.
+	 */
+	volatile bool program_download;
 };
 
 static struct canopen_leds_state canopen_leds;
