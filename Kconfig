@@ -18,7 +18,7 @@ source "subsys/logging/Kconfig.template.log_config"
 config CANOPENNODE_SDO_BUFFER_SIZE
 	int "CANopen SDO buffer size"
 	default 32
-	range 7 889
+	range 8 889
 	help
 	  Size of the internal CANopen SDO buffer in bytes. Size must
 	  be at least equal to the size of the largest variable in the
@@ -113,9 +113,18 @@ config CANOPENNODE_PROGRAM_DOWNLOAD
 	bool "CANopen program download"
 	depends on BOOTLOADER_MCUBOOT
 	select IMG_MANAGER
+	select CRC
 	default y
 	help
 	  Enable support for program download over CANopen according
 	  to the CiA 302-3 (draft) specification.
+
+	  The application object dictionary must contain objects
+	  0x1F50 (program data), 0x1F51 (program control), 0x1F56
+	  (program software identification) and 0x1F57 (flash status),
+	  and the application must call
+	  canopen_program_download_attach() after CO_CANopenInit().
+	  IMG_MANAGER additionally needs FLASH, FLASH_MAP and
+	  STREAM_FLASH.
 
 endif # CANOPENNODE

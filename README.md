@@ -17,6 +17,8 @@ This code has been tested on STM32F072 (bxCAN), STM32H7(M_CAN), and FRDM-MCXN947
 | `src/CO_driver.c` | Zephyr CAN driver glue: TX workqueue, RX filters, mutexes |
 | `src/canopen_leds.c` | CiA 303-3 LED indicators over GPIO |
 | `src/canopen_sync.c` | Separate SYNC producer/consumer thread |
+| `src/canopen_program.c` | CiA 302-3 program download (firmware update over CAN with MCUboot) |
+| `include/canopennode.h` | Public glue API (LEDs, program download) |
 | `include/CO_driver_target.h` | Zephyr-specific macros |
 | `Kconfig` | All `CONFIG_CANOPENNODE_*` options |
 | `zephyr/module.yml` | Zephyr module config |
@@ -32,10 +34,67 @@ can add them the way they need:
 - **NVS storage** - saving the Object Dictionary to flash is not in the default
   sample. If you need it, add `CONFIG_CANOPENNODE_STORAGE=y`, enable the NVS and
   Settings subsystems, and make sure your board has a `storage` partition.
-- **Firmware upgrade over CANopen** - not built in. This needs MCUboot, flash
-  map, stream flash, and the `canopen` runner.
+- **Firmware upgrade over CANopen** - supported by the module (see
+  [Program download](#program-download-firmware-update-over-can)), but not enabled
+  in the sample: it needs MCUboot and extra objects in the OD.
 
 The sample ships with `native_sim.conf` as a reference config for simulation builds.
+
+## Program download (firmware update over CAN)
+
+`src/canopen_program.c` implements CiA 302-3 program download on top of MCUboot, so
+an image can be flashed with Zephyr's `canopen` west runner. It is the v4 port of
+the same feature in the original CANopenNodeZephyr.
+
+Requirements:
+
+1. Build with sysbuild and MCUboot (`SB_CONFIG_BOOTLOADER_MCUBOOT=y` in
+   `sysbuild.conf`).
+2. `prj.conf`:
+
+   ```
+   CONFIG_BOOTLOADER_MCUBOOT=y
+   CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD=y
+   CONFIG_FLASH=y
+   CONFIG_FLASH_MAP=y
+   CONFIG_STREAM_FLASH=y
+   CONFIG_MPU_ALLOW_FLASH_WRITE=y   # on boards with an MPU
+   ```
+
+3. These objects in the application OD (ARRAY, sub-index 0 = 1):
+
+   | Index:Sub | Type | Access | Meaning |
+   |---|---|---|---|
+   | 0x1F50:01 | DOMAIN | wo | Program data |
+   | 0x1F51:01 | UNSIGNED8 | rw | Program control (0 stop, 1 start, 3 clear, 0x80 confirm) |
+   | 0x1F56:01 | UNSIGNED32 | ro | Program software ID (CRC32 of the image) |
+   | 0x1F57:01 | UNSIGNED32 | ro | Flash status |
+
+4. After every `CO_CANopenInit()`:
+
+   ```c
+   #include <canopennode.h>
+
+   canopen_program_download_attach(OD, CO->NMT, CO->em);
+   ```
+
+   It returns `-ENOENT` if one of the objects above is missing.
+
+5. When `CO_process()` returns `CO_RESET_APP` (sent after a "start" command with a
+   new image), reboot with `sys_reboot()` so MCUboot can swap the image.
+
+Flash with the runner (needs the Python packages `canopen` and `tqdm`):
+
+```bash
+west flash --runner canopen --node-id <id>
+```
+
+Commands are only accepted in NMT pre-operational; the runner switches the node to
+pre-operational itself. The new image boots as a test image and is confirmed by the
+runner afterwards; if it is not confirmed, MCUboot reverts on the next reset.
+
+Clearing the image slot runs inside one SDO transfer and can take several seconds on
+large slots, so raise `--sdo-timeout` (for example `--sdo-timeout=30 --timeout=60`).
 
 ---
 
@@ -99,7 +158,7 @@ All from `Kconfig`. Set in `prj.conf` or with `-DCONFIG_<NAME>=<value>` on the b
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `CANOPENNODE` | bool | n | Enable CANopenNode |
-| `CANOPENNODE_SDO_BUFFER_SIZE` | int | 32 | SDO buffer size (7-889 bytes) |
+| `CANOPENNODE_SDO_BUFFER_SIZE` | int | 32 | SDO server buffer size (8-889 bytes) |
 | `CANOPENNODE_TRACE_BUFFER_SIZE` | int | 100 | Trace buffer in bytes |
 | `CANOPENNODE_TX_WORKQUEUE_STACK_SIZE` | int | 512 | TX workqueue thread stack |
 | `CANOPENNODE_TX_WORKQUEUE_PRIORITY` | int | 0 / -1 | TX workqueue priority |
@@ -108,6 +167,7 @@ All from `Kconfig`. Set in `prj.conf` or with `-DCONFIG_<NAME>=<value>` on the b
 | `CANOPENNODE_LEDS` | bool | y | CiA 303-3 LED indicators |
 | `CANOPENNODE_LEDS_BICOLOR` | bool | n | Handle LEDs as one bicolor LED |
 | `CANOPENNODE_SYNC_THREAD` | bool | n | Separate SYNC thread |
+| `CANOPENNODE_PROGRAM_DOWNLOAD` | bool | y | CiA 302-3 program download (needs `BOOTLOADER_MCUBOOT`) |
 | `CANOPEN_NODE_ID` | int | 10 | CANopen Node ID (1-127) |
 
 ### Example: change node ID, turn off LEDs

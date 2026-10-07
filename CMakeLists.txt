@@ -34,5 +34,6 @@ if(CONFIG_CANOPENNODE)
 
   zephyr_library_sources_ifdef(CONFIG_CANOPENNODE_LEDS src/canopen_leds.c)
   zephyr_library_sources_ifdef(CONFIG_CANOPENNODE_SYNC_THREAD src/canopen_sync.c)
+  zephyr_library_sources_ifdef(CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD src/canopen_program.c)
 
 endif()
