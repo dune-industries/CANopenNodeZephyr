@@ -261,6 +261,15 @@ static inline ODR_t canopen_program_cmd_clear(void)
 	ctx.flash_erased = true;
 	ctx.flash_written = false;
 
+	/*
+	 * A fresh attempt starts here: drop the LED indication and the error
+	 * from an earlier failed or aborted download. The error would otherwise
+	 * stay in the error register and, with CO_NMT_ERR_ON_ERR_REG, keep the
+	 * node out of operational until reboot.
+	 */
+	canopen_program_leds(false);
+	CO_errorReset(ctx.em, CO_EM_NON_VOLATILE_MEMORY, 0U);
+
 	return ODR_OK;
 }
 
@@ -533,6 +542,7 @@ int canopen_program_download_attach(OD_t *od, CO_NMT_t *nmt, CO_EM_t *em)
 	ctx.flash_erased = false;
 	ctx.flash_written = false;
 	ctx.nmt = nmt;
+	canopen_program_leds(false);
 	ctx.em = em;
 
 	err = canopen_program_extension_init(od, OD_H1F50_PROGRAM_DATA, &ctx.ext_1f50,
