@@ -127,4 +127,17 @@ config CANOPENNODE_PROGRAM_DOWNLOAD
 	  IMG_MANAGER additionally needs FLASH, FLASH_MAP and
 	  STREAM_FLASH.
 
+config CANOPENNODE_PROGRAM_DOWNLOAD_TIMEOUT_MS
+	int "Program download abort detection timeout in milliseconds"
+	depends on CANOPENNODE_PROGRAM_DOWNLOAD
+	default 2000
+	help
+	  If no program data has been received for this long, a download
+	  that is still marked as in progress is treated as aborted (for
+	  example the CAN bus was disconnected), and the flash status
+	  (0x1F57) stops reporting "in progress". Must be larger than the
+	  SDO server timeout passed to CO_CANopenInit(), since a transfer
+	  that is idle for longer than that has been aborted by the SDO
+	  server already.
+
 endif # CANOPENNODE

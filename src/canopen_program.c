@@ -56,6 +56,8 @@ struct canopen_program_context {
 	/* Slot1 erased by "clear" and no download started into it since */
 	bool flash_erased;
 	bool flash_written;
+	/* Uptime of the last program data received, for abort detection */
+	int64_t last_data_ms;
 	OD_extension_t ext_1f50;
 	OD_extension_t ext_1f51;
 	OD_extension_t ext_1f56;
@@ -88,6 +90,30 @@ static uint32_t canopen_program_get_status(void)
 	}
 
 	return ctx.program_status;
+}
+
+/*
+ * The OD layer is not told when an SDO transfer is aborted (client abort,
+ * SDO server timeout, bus disconnected), so a download that dies halfway
+ * would report "in progress" forever. Treat it as aborted once no data has
+ * arrived for longer than the SDO server timeout. The slot is partially
+ * written, so a new "clear" is required (flash_erased is already false).
+ */
+static void canopen_program_check_aborted(void)
+{
+	if ((ctx.flash_status & FLASH_STATUS_IN_PROGRESS) == 0U) {
+		return;
+	}
+
+	if ((k_uptime_get() - ctx.last_data_ms) <
+	    CONFIG_CANOPENNODE_PROGRAM_DOWNLOAD_TIMEOUT_MS) {
+		return;
+	}
+
+	LOG_WRN("program download aborted");
+	ctx.flash_status = FLASH_STATUS_NO_ERROR;
+	canopen_program_set_status(PROGRAM_CTRL_STOP);
+	canopen_program_leds(false);
 }
 
 /* Read a 32-bit value into an SDO buffer */
@@ -133,6 +159,8 @@ static ODR_t canopen_odf_1f50_write(OD_stream_t *stream, const void *buf, OD_siz
 		ctx.flash_status = FLASH_STATUS_FLASH_NOT_CLEARED;
 		return ODR_DATA_DEV_STATE;
 	}
+
+	ctx.last_data_ms = k_uptime_get();
 
 	if (stream->dataOffset == 0U) {
 		/*
@@ -304,6 +332,8 @@ static ODR_t canopen_odf_1f51_read(OD_stream_t *stream, void *buf, OD_size_t cou
 		return ODR_DEV_INCOMPAT;
 	}
 
+	canopen_program_check_aborted();
+
 	*countRead = CO_setUint8(buf, canopen_program_get_status());
 
 	return ODR_OK;
@@ -322,6 +352,8 @@ static ODR_t canopen_odf_1f51_write(OD_stream_t *stream, const void *buf, OD_siz
 	if (count != sizeof(uint8_t)) {
 		return ODR_TYPE_MISMATCH;
 	}
+
+	canopen_program_check_aborted();
 
 	if (CO_NMT_getInternalState(ctx.nmt) != CO_NMT_PRE_OPERATIONAL) {
 		LOG_DBG("not in pre-operational state");
@@ -494,6 +526,8 @@ static ODR_t canopen_odf_1f57_read(OD_stream_t *stream, void *buf, OD_size_t cou
 	if (stream->subIndex != PROGRAM_NUMBER) {
 		return OD_readOriginal(stream, buf, count, countRead);
 	}
+
+	canopen_program_check_aborted();
 
 	return canopen_program_read_u32(ctx.flash_status, buf, count, countRead);
 }
