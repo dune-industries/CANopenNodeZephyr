@@ -65,9 +65,18 @@ static void canopen_sync_thread(void *p1, void *p2, void *p3)
 		if (CO && CO->CANmodule && CO->CANmodule->CANnormal
 		    && !CO->nodeIdUnconfigured) {
 			CO_LOCK_OD(CO->CANmodule);
+			/* Only call what is compiled in (e.g. an OD without PDOs) */
+			sync = false;
+#if ((CO_CONFIG_SYNC) & CO_CONFIG_SYNC_ENABLE) != 0
 			sync = CO_process_SYNC(CO, elapsed, NULL);
+#endif
+#if ((CO_CONFIG_PDO) & CO_CONFIG_RPDO_ENABLE) != 0
 			CO_process_RPDO(CO, sync, elapsed, NULL);
+#endif
+#if ((CO_CONFIG_PDO) & CO_CONFIG_TPDO_ENABLE) != 0
 			CO_process_TPDO(CO, sync, elapsed, NULL);
+#endif
+			(void)sync;
 			CO_UNLOCK_OD(CO->CANmodule);
 		}
 	}
